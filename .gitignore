@@ -1,5 +1,6 @@
 android/
 dist/
+.output/
 .cache/
 public/pyodide/
 .vercel/

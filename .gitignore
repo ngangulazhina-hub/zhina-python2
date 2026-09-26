@@ -1,0 +1,6 @@
+android/
+dist/
+.cache/
+public/pyodide/
+.vercel/
+node_modules/

@@ -1,0 +1,193 @@
+@import "tailwindcss";
+
+@theme {
+  --color-bg: #111110;
+  --color-surface: #1a1917;
+  --color-elevated: #232220;
+  --color-fg: #f0ede6;
+  --color-muted: #9c9890;
+  --color-subtle: #6f6b64;
+  --color-accent: #b8c4ce;
+  --color-accent-fg: #111110;
+  --color-border: #2e2c28;
+  --color-danger: #d4726a;
+  --color-success: #7d9a7e;
+  --color-warn: #c4a574;
+
+  --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+  --radius-xs: 4px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 24px;
+
+  --shadow-border: 0 0 0 1px rgba(240, 237, 230, 0.08);
+  --shadow-lift: 0 10px 30px -18px rgba(0, 0, 0, 0.55);
+
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    background: var(--color-bg);
+    color: var(--color-fg);
+  }
+
+  body {
+    margin: 0;
+    min-height: 100dvh;
+    background: var(--color-bg);
+    color: var(--color-fg);
+    font-family: var(--font-sans);
+    overflow: hidden;
+  }
+
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+
+  h1,
+  h2,
+  h3 {
+    text-wrap: balance;
+  }
+
+  p {
+    text-wrap: pretty;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+}
+
+/* CodeMirror host — colours come from inline CSS vars on the editor shell */
+.zhina-cm {
+  height: 100%;
+  width: 100%;
+  font-variant-ligatures: contextual;
+}
+
+.zhina-cm .cm-editor {
+  height: 100%;
+  background: var(--ed-bg);
+  color: var(--ed-fg);
+  font-family: var(--ed-font);
+  font-size: var(--ed-size);
+  font-weight: var(--ed-weight);
+  font-style: var(--ed-style);
+  outline: none;
+}
+
+.zhina-cm .cm-scroller {
+  font-family: inherit;
+  line-height: 1.55;
+  overflow: auto;
+}
+
+.zhina-cm .cm-gutters {
+  background: var(--ed-bg);
+  color: var(--ed-gutter);
+  border-right: 1px solid color-mix(in oklab, var(--ed-fg) 10%, transparent);
+}
+
+.zhina-cm .cm-activeLineGutter,
+.zhina-cm .cm-activeLine {
+  background: var(--ed-line);
+}
+
+.zhina-cm .cm-selectionBackground,
+.zhina-cm .cm-content ::selection {
+  background: var(--ed-selection) !important;
+}
+
+.zhina-cm .cm-cursor {
+  border-left-color: var(--ed-cursor);
+}
+
+.zhina-cm .cm-content {
+  caret-color: var(--ed-cursor);
+}
+
+.zhina-cm .cm-lineNumbers .cm-gutterElement {
+  min-width: 2.4rem;
+  padding: 0 0.5rem 0 0.4rem;
+}
+
+.zhina-cm .cm-foldGutter {
+  width: 12px;
+}
+
+.zhina-cm .cm-tooltip {
+  background: var(--color-elevated);
+  color: var(--color-fg);
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  overflow: hidden;
+  font-family: var(--ed-font);
+  font-size: 13px;
+  box-shadow: var(--shadow-lift);
+}
+
+.zhina-cm .cm-tooltip-autocomplete ul li[aria-selected] {
+  background: color-mix(in oklab, var(--color-accent) 22%, transparent);
+  color: var(--color-fg);
+}
+
+.zhina-cm .cm-diagnostic-error {
+  border-bottom: 2px wavy var(--color-danger);
+}
+
+.zhina-cm .cm-diagnostic-warning {
+  border-bottom: 2px dashed var(--color-warn);
+}
+
+.zhina-cm .cm-lint-marker-error {
+  content: "";
+}
+
+.zhina-block-current {
+  background: var(--ed-block);
+}
+
+.zhina-guides {
+  position: absolute;
+  inset: 0 auto 0 0;
+  pointer-events: none;
+}
+
+.zhina-guide {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--ed-guide);
+}
+
+.zhina-block-bar {
+  position: absolute;
+  width: 2px;
+  border-radius: 1px;
+  background: color-mix(in oklab, var(--ed-keyword) 70%, transparent);
+}
+
+.zhina-block-band {
+  position: absolute;
+  background: var(--ed-block);
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

@@ -1,4 +1,4 @@
-import { cp, mkdir, rm } from 'node:fs/promises';
+import { cp, mkdir, rm, readdir, stat } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 
 const candidates = ['.output/public', '.vercel/output/static', 'dist/client', 'build'];
@@ -10,17 +10,38 @@ await mkdir('dist', { recursive: true });
 await cp(source, 'dist', { recursive: true });
 console.log(`Copied ${source} -> dist`);
 
-// Pyodide must ship inside the app bundle for offline use — if it's missing
-// here, the app will silently try to fetch it over the network at runtime
-// instead (slow, and broken with no connection), with no error until someone
-// actually tries to run Python. Fail the build loudly instead.
-const pyodideEntry = 'dist/pyodide/pyodide.mjs';
-if (!existsSync(pyodideEntry)) {
+// Pyodide must ship inside the app bundle for offline use. It's not enough to
+// check for pyodide.mjs (a tiny JS loader) — the files that actually make
+// Python work offline are the wasm binary and the stdlib zip, and those are
+// large enough that some static-asset copy steps silently drop them. Check
+// all three, and print sizes so a partial copy is visible in the log instead
+// of silently shipping a broken app.
+const pyodideDir = 'dist/pyodide';
+const required = ['pyodide.mjs', 'pyodide.asm.wasm', 'python_stdlib.zip'];
+
+console.log(`\nChecking ${pyodideDir}:`);
+if (existsSync(pyodideDir)) {
+  const files = await readdir(pyodideDir);
+  for (const f of files) {
+    const s = await stat(`${pyodideDir}/${f}`);
+    console.log(`  ${f} — ${(s.size / 1024 / 1024).toFixed(2)} MB`);
+  }
+} else {
+  console.log('  (directory does not exist)');
+}
+
+const missing = [];
+for (const f of required) {
+  if (!existsSync(`${pyodideDir}/${f}`)) missing.push(f);
+}
+
+if (missing.length > 0) {
   throw new Error(
-    `Pyodide was not bundled: ${pyodideEntry} is missing from the build output.\n` +
-    `Check that public/pyodide/ was populated (npm run android:pyodide) BEFORE ` +
-    `the web build ran, and that the build actually copies the public/ directory ` +
-    `into ${source}.`,
+    `Pyodide was not fully bundled — missing: ${missing.join(', ')} in ${pyodideDir}.\n` +
+    `This means the web build's static-asset copy step is dropping some files from ` +
+    `public/pyodide/ (likely the large binary/zip ones) when producing ${source}. ` +
+    `Check that public/pyodide/ was fully populated before the build ran, and that ` +
+    `nothing in the build pipeline filters by file extension or size.`,
   );
 }
-console.log('Verified Pyodide is present in dist/pyodide/.');
+console.log('\nVerified Pyodide core files are present in dist/pyodide/.');

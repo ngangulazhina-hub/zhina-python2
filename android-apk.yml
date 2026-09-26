@@ -1,0 +1,66 @@
+name: Build Zhina Python APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: '22'
+  PYODIDE_VERSION: '314.0.7'
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Install JavaScript dependencies
+        run: npm install
+
+      - name: Install Capacitor Android tooling
+        run: npm install @capacitor/core @capacitor/cli @capacitor/android @capacitor/assets
+
+      - name: Download local Pyodide core
+        run: node scripts/fetch-pyodide.mjs
+
+      - name: Build web app for Android
+        env:
+          VITE_AUTH_ENABLED: 'false'
+        run: npm run android:prepare
+
+      - name: Add Android platform
+        run: npx cap add android
+
+      - name: Generate Android icons
+        run: npx capacitor-assets generate --android
+
+      - name: Sync Capacitor
+        run: npx cap sync android
+
+      - name: Build debug APK
+        working-directory: android
+        run: ./gradlew assembleDebug --no-daemon
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: zhina-python-debug-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error

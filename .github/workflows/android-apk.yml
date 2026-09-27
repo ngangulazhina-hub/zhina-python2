@@ -54,9 +54,23 @@ jobs:
       - name: Sync Capacitor
         run: npx cap sync android
 
+      - name: Verify Pyodide made it into the native Android assets
+        run: |
+          echo "Contents of android/app/src/main/assets/public/pyodide:"
+          ls -la android/app/src/main/assets/public/pyodide || echo "  DIRECTORY MISSING"
+          du -sh android/app/src/main/assets/public/pyodide || true
+
       - name: Build debug APK
         working-directory: android
         run: ./gradlew assembleDebug --no-daemon
+
+      - name: Verify Pyodide made it into the final APK
+        run: |
+          echo "Pyodide-related entries inside the built APK:"
+          unzip -l android/app/build/outputs/apk/debug/app-debug.apk | grep -i pyodide || echo "  NONE FOUND — Pyodide is missing from the final APK"
+          echo ""
+          echo "Full APK size:"
+          ls -la android/app/build/outputs/apk/debug/app-debug.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4

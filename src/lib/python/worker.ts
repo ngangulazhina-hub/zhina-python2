@@ -15,37 +15,70 @@ function openCacheDb(): Promise<IDBDatabase> {
   });
 }
 
+// IndexedDB access from inside a Worker is known to sometimes hang (never
+// firing onsuccess OR onerror) on Android's WebView, rather than fail
+// cleanly. A try/catch does not help with a hang — only a rejection. Race
+// every cache operation against a timeout so a stuck IndexedDB can never
+// block a fetch the interpreter is waiting on (this is what boot-critical
+// files like pyodide.asm.wasm go through).
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error(`timed out after ${ms}ms`)), ms);
+    promise.then(
+      (v) => {
+        clearTimeout(t);
+        resolve(v);
+      },
+      (e) => {
+        clearTimeout(t);
+        reject(e);
+      },
+    );
+  });
+}
+
 async function cachedFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
   const req = new Request(input, init);
   if (req.method !== "GET") return nativeFetch(req);
   const key = req.url;
   try {
-    const db = await openCacheDb();
-    const cached = await new Promise<ArrayBuffer | null>((resolve, reject) => {
-      const tx = db.transaction(REMOTE_CACHE_STORE, "readonly");
-      const get = tx.objectStore(REMOTE_CACHE_STORE).get(key);
-      get.onsuccess = () => resolve(get.result ?? null);
-      get.onerror = () => reject(get.error);
-    });
+    const db = await withTimeout(openCacheDb(), 2000);
+    const cached = await withTimeout(
+      new Promise<ArrayBuffer | null>((resolve, reject) => {
+        const tx = db.transaction(REMOTE_CACHE_STORE, "readonly");
+        const get = tx.objectStore(REMOTE_CACHE_STORE).get(key);
+        get.onsuccess = () => resolve(get.result ?? null);
+        get.onerror = () => reject(get.error);
+      }),
+      2000,
+    );
     if (cached) return new Response(cached);
   } catch {
-    // Cache is an enhancement; networking still works if storage is unavailable.
+    // Cache is an enhancement; networking still works if storage is unavailable
+    // or IndexedDB is hanging.
   }
 
   const response = await nativeFetch(req);
   if (response.ok && /^https?:/.test(req.url)) {
-    try {
-      const body = await response.clone().arrayBuffer();
-      const db = await openCacheDb();
-      await new Promise<void>((resolve, reject) => {
-        const tx = db.transaction(REMOTE_CACHE_STORE, "readwrite");
-        tx.objectStore(REMOTE_CACHE_STORE).put(body, key);
-        tx.oncomplete = () => resolve();
-        tx.onerror = () => reject(tx.error);
-      });
-    } catch {
-      // Ignore cache failures.
-    }
+    // Cache-write happens after we already have the response we need to return.
+    // Never await this — a hang here must not delay handing data back to Pyodide.
+    void (async () => {
+      try {
+        const body = await response.clone().arrayBuffer();
+        const db = await withTimeout(openCacheDb(), 2000);
+        await withTimeout(
+          new Promise<void>((resolve, reject) => {
+            const tx = db.transaction(REMOTE_CACHE_STORE, "readwrite");
+            tx.objectStore(REMOTE_CACHE_STORE).put(body, key);
+            tx.oncomplete = () => resolve();
+            tx.onerror = () => reject(tx.error);
+          }),
+          2000,
+        );
+      } catch {
+        // Ignore cache failures — this must never affect the returned response.
+      }
+    })();
   }
   return response;
 }
@@ -74,6 +107,19 @@ let userGlobals: unknown = null;
 function post(data: Record<string, unknown>) {
   self.postMessage(data);
 }
+
+// A worker that throws asynchronously (an unhandled promise rejection, as
+// opposed to a synchronous script error) does not reliably reach the main
+// thread's Worker.onerror in every environment. Report both cases explicitly
+// so a failure is always visible instead of leaving the UI on "Loading
+// interpreter" forever with nothing to explain why.
+self.addEventListener("error", (e: ErrorEvent) => {
+  post({ type: "fatal", text: `Worker error: ${e.message || e.error || "unknown error"}` });
+});
+self.addEventListener("unhandledrejection", (e: PromiseRejectionEvent) => {
+  const reason = e.reason instanceof Error ? e.reason.message : String(e.reason);
+  post({ type: "fatal", text: `Unhandled error while starting the interpreter: ${reason}` });
+});
 
 async function ensurePyodide() {
   if (pyodide) return pyodide;

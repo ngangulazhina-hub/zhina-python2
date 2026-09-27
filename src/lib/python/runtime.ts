@@ -20,6 +20,7 @@ class PythonRuntime {
   private worker: Worker | null = null;
   private handlers = new Set<Handler>();
   private ready = false;
+  private bootTimeout: number | undefined;
   version = "Python 3.14";
 
   subscribe(handler: Handler) {
@@ -45,13 +46,27 @@ class PythonRuntime {
       if (ev.type === "ready") {
         this.ready = true;
         this.version = ev.version;
+        if (this.bootTimeout) window.clearTimeout(this.bootTimeout);
       }
+      if (ev.type === "fatal" && this.bootTimeout) window.clearTimeout(this.bootTimeout);
       this.emit(ev);
     };
     this.worker.onerror = (err) => {
+      if (this.bootTimeout) window.clearTimeout(this.bootTimeout);
       this.emit({ type: "fatal", text: err.message || "Python worker failed" });
     };
     this.worker.postMessage({ type: "init" });
+    if (this.bootTimeout) window.clearTimeout(this.bootTimeout);
+    this.bootTimeout = window.setTimeout(() => {
+      if (!this.ready) {
+        this.emit({
+          type: "fatal",
+          text:
+            "The interpreter did not finish starting within 20 seconds. This usually means one of the " +
+            "bundled Pyodide files could not be read, or the app's local storage is unavailable.",
+        });
+      }
+    }, 20000);
   }
 
   ensure() {

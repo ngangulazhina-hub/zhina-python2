@@ -3,6 +3,7 @@ import { Trash2, Copy } from "lucide-react";
 import { useIdeStore } from "@/lib/ide/store";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { parseAnsi, stripAnsi } from "@/lib/python/ansi";
 
 export function PythonTerminal({ className }: { className?: string }) {
   const lines = useIdeStore((s) => s.lines);
@@ -52,7 +53,7 @@ export function PythonTerminal({ className }: { className?: string }) {
             onClick={() => {
               const text = lines
                 .filter((l) => l.kind !== "image")
-                .map((l) => l.text)
+                .map((l) => stripAnsi(l.text))
                 .join("\n");
               void navigator.clipboard?.writeText(text);
             }}
@@ -86,19 +87,27 @@ export function PythonTerminal({ className }: { className?: string }) {
                 className="my-2 max-w-full rounded-md outline outline-1 -outline-offset-1 outline-black/10"
               />
             ) : (
-              <pre
-                key={line.id}
-                className="whitespace-pre-wrap break-words leading-relaxed"
-                style={{
-                  color:
-                    line.kind === "stderr"
-                      ? settings.terminalErr
-                      : line.kind === "in" || line.kind === "system"
-                        ? settings.terminalPrompt
-                        : settings.terminalFg,
-                }}
-              >
-                {line.text}
+              <pre key={line.id} className="whitespace-pre-wrap break-words leading-relaxed">
+                {parseAnsi(line.text).map((seg, i) => (
+                  <span
+                    key={i}
+                    style={{
+                      color:
+                        seg.color ??
+                        (line.kind === "stderr"
+                          ? settings.terminalErr
+                          : line.kind === "in" || line.kind === "system"
+                            ? settings.terminalPrompt
+                            : settings.terminalFg),
+                      fontWeight: seg.bold ? 700 : undefined,
+                      fontStyle: seg.italic ? "italic" : undefined,
+                      textDecoration: seg.underline ? "underline" : undefined,
+                      opacity: seg.dim ? 0.65 : undefined,
+                    }}
+                  >
+                    {seg.text}
+                  </span>
+                ))}
               </pre>
             ),
           )

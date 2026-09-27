@@ -6,6 +6,7 @@ import { PythonEditor } from "@/components/ide/python-editor";
 import { PythonTerminal } from "@/components/ide/python-terminal";
 import { RunFab } from "@/components/ide/run-fab";
 import { VolumeRocker } from "@/components/ide/volume-rocker";
+import { EditorToolbar } from "@/components/ide/editor-toolbar";
 import { ErrorBanner } from "@/components/ide/error-banner";
 import { AnalysisStrip } from "@/components/ide/analysis-strip";
 import { SettingsScreen } from "@/components/ide/settings-screen";
@@ -14,6 +15,14 @@ import { useIdeStore } from "@/lib/ide/store";
 import { pythonRuntime, parsePythonError } from "@/lib/python/runtime";
 import { requestPersistentStorage, requestWakeLock, storagePersisted } from "@/lib/ide/permissions";
 import { analyzeWithLezer } from "@/lib/python/js-analyze";
+
+function vibrate(pattern: number | number[]) {
+  try {
+    navigator.vibrate?.(pattern);
+  } catch {
+    // Not supported on this device — safe to ignore.
+  }
+}
 
 export function IdeApp() {
   const viewRef = useRef<EditorView | null>(null);
@@ -53,6 +62,7 @@ export function IdeApp() {
         store.setLastError(parsed);
         store.appendLine({ kind: "stderr", text: ev.text });
         if (store.terminalLayout === "screen") store.setScreen("terminal");
+        vibrate([20, 40, 20]);
       } else if (ev.type === "done") {
         store.setStatus("ready");
       } else if (ev.type === "analysis") {
@@ -76,6 +86,7 @@ export function IdeApp() {
       } else if (ev.type === "fatal") {
         store.appendLine({ kind: "stderr", text: ev.text });
         store.setStatus("error", ev.text);
+        vibrate([20, 40, 20]);
       }
     });
     pythonRuntime.ensure();
@@ -111,6 +122,7 @@ export function IdeApp() {
     const onRun = () => {
       const { code, stdin, terminalLayout, setScreen, clearTerminal, setLastError, appendLine, setStatus } =
         useIdeStore.getState();
+      vibrate(15);
       clearTerminal();
       setLastError(null);
       appendLine({ kind: "system", text: "Running…" });
@@ -186,6 +198,7 @@ export function IdeApp() {
           <div className="relative flex min-h-0 flex-1 flex-col">
             <PythonEditor viewRef={viewRef} />
             <VolumeRocker viewRef={viewRef} />
+            <EditorToolbar viewRef={viewRef} />
           </div>
         ) : null}
         <ErrorBanner viewRef={viewRef} />

@@ -1,4 +1,4 @@
-import { Book, Download, FolderOpen, MoreHorizontal, Plus, Settings, Terminal } from "lucide-react";
+import { Book, Check, Download, FolderOpen, MoreHorizontal, Pencil, Plus, Settings, Share2, Terminal, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { EXAMPLES } from "@/lib/ide/examples";
 import { useIdeStore } from "@/lib/ide/store";
@@ -9,8 +9,11 @@ export function IdeHeader() {
   const setCode = useIdeStore((s) => s.setCode);
   const layout = useIdeStore((s) => s.terminalLayout);
   const screen = useIdeStore((s) => s.screen);
+  const files = useIdeStore((s) => s.files);
+  const currentFileId = useIdeStore((s) => s.currentFileId);
   const [menu, setMenu] = useState(false);
   const [examples, setExamples] = useState(false);
+  const [recentOpen, setRecentOpen] = useState(false);
 
   const openFile = () => {
     const input = document.createElement("input");
@@ -19,19 +22,50 @@ export function IdeHeader() {
     input.onchange = () => {
       const file = input.files?.[0];
       if (!file) return;
-      void file.text().then((text) => setCode(text));
+      void file.text().then((text) => useIdeStore.getState().importFile(file.name, text));
     };
     input.click();
   };
 
   const saveFile = () => {
-    const blob = new Blob([useIdeStore.getState().code], { type: "text/x-python" });
+    const s = useIdeStore.getState();
+    const current = s.files.find((f) => f.id === s.currentFileId);
+    const blob = new Blob([s.code], { type: "text/x-python" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = "main.py";
+    a.download = current?.name ?? "main.py";
     a.click();
     URL.revokeObjectURL(url);
+  };
+
+  const shareFile = async () => {
+    const s = useIdeStore.getState();
+    const current = s.files.find((f) => f.id === s.currentFileId);
+    const name = current?.name ?? "main.py";
+    try {
+      const file = new File([s.code], name, { type: "text/x-python" });
+      if (navigator.canShare?.({ files: [file] })) {
+        await navigator.share({ files: [file], title: name });
+        return;
+      }
+      if (navigator.share) {
+        await navigator.share({ title: name, text: s.code });
+        return;
+      }
+    } catch {
+      // User cancelled the share sheet, or sharing failed — nothing to do either way.
+      return;
+    }
+    // No Web Share API available at all — fall back to downloading instead.
+    saveFile();
+  };
+
+  const handleNewFile = () => {
+    const name = window.prompt("File name", "untitled.py");
+    if (name === null) return;
+    useIdeStore.getState().newFile(name);
+    setMenu(false);
   };
 
   return (
@@ -95,9 +129,18 @@ export function IdeHeader() {
 
       {menu ? (
         <Menu onClose={() => setMenu(false)}>
-          <Item icon={<Plus className="size-4" />} label="New file" onClick={() => useIdeStore.getState().newFile()} />
-          <Item icon={<FolderOpen className="size-4" />} label="Open" onClick={openFile} />
+          <Item icon={<Plus className="size-4" />} label="New file" onClick={handleNewFile} />
+          <Item
+            icon={<FolderOpen className="size-4" />}
+            label="Recent files"
+            onClick={() => {
+              setMenu(false);
+              setRecentOpen(true);
+            }}
+          />
+          <Item icon={<FolderOpen className="size-4" />} label="Open from device" onClick={openFile} />
           <Item icon={<Download className="size-4" />} label="Download .py" onClick={saveFile} />
+          <Item icon={<Share2 className="size-4" />} label="Share" onClick={() => void shareFile()} />
           <Item
             icon={<Terminal className="size-4" />}
             label={layout === "below" ? "Terminal on its own screen" : "Terminal under editor"}
@@ -105,7 +148,70 @@ export function IdeHeader() {
           />
         </Menu>
       ) : null}
+
+      {recentOpen ? (
+        <RecentFilesPanel
+          files={files}
+          currentFileId={currentFileId}
+          onClose={() => setRecentOpen(false)}
+        />
+      ) : null}
     </header>
+  );
+}
+
+function RecentFilesPanel({
+  files,
+  currentFileId,
+  onClose,
+}: {
+  files: { id: string; name: string; code: string; updatedAt: number }[];
+  currentFileId: string;
+  onClose: () => void;
+}) {
+  const sorted = [...files].sort((a, b) => b.updatedAt - a.updatedAt);
+  return (
+    <Menu onClose={onClose}>
+      <div className="px-3 py-2 text-xs font-medium text-muted">Recent files</div>
+      {sorted.map((f) => (
+        <div key={f.id} className="flex items-center gap-1 pr-2 hover:bg-elevated">
+          <button
+            type="button"
+            className="flex h-11 min-w-0 flex-1 items-center gap-2 px-3 text-left text-sm"
+            onClick={() => {
+              useIdeStore.getState().openRecentFile(f.id);
+              onClose();
+            }}
+          >
+            {f.id === currentFileId ? <Check className="size-4 shrink-0 text-accent" /> : <span className="size-4 shrink-0" />}
+            <span className="truncate">{f.name}</span>
+          </button>
+          {f.id === currentFileId ? (
+            <button
+              type="button"
+              aria-label="Rename file"
+              className="flex size-8 shrink-0 items-center justify-center rounded-lg hover:bg-surface"
+              onClick={() => {
+                const name = window.prompt("Rename file", f.name.replace(/\.py$/i, ""));
+                if (name) useIdeStore.getState().renameCurrentFile(name);
+              }}
+            >
+              <Pencil className="size-3.5" />
+            </button>
+          ) : null}
+          {files.length > 1 ? (
+            <button
+              type="button"
+              aria-label="Delete file"
+              className="flex size-8 shrink-0 items-center justify-center rounded-lg hover:bg-surface"
+              onClick={() => useIdeStore.getState().deleteFile(f.id)}
+            >
+              <Trash2 className="size-3.5" />
+            </button>
+          ) : null}
+        </div>
+      ))}
+    </Menu>
   );
 }
 

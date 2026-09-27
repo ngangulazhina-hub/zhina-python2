@@ -17,7 +17,7 @@ import {
   bracketMatching,
   indentUnit,
 } from "@codemirror/language";
-import { searchKeymap, highlightSelectionMatches } from "@codemirror/search";
+import { searchKeymap, highlightSelectionMatches, search } from "@codemirror/search";
 import { closeBrackets, closeBracketsKeymap } from "@codemirror/autocomplete";
 import { lintGutter, linter, type Diagnostic as CmDiagnostic } from "@codemirror/lint";
 import { pythonAutocomplete } from "@/lib/python/completions";
@@ -53,6 +53,20 @@ function offsetFromLine(code: string, line: number, column: number) {
   let off = 0;
   for (let i = 0; i < Math.max(0, line - 1); i++) off += (lines[i]?.length ?? 0) + 1;
   return Math.min(code.length, off + Math.max(0, column - 1));
+}
+
+function smartPaste(view: EditorView, text: string): boolean {
+  if (!text.includes("\n")) return false;
+  const lines = text.replace(/\r\n/g, "\n").split("\n");
+  const indents = lines.filter((l) => l.trim().length > 0).map((l) => l.match(/^[ \t]*/)?.[0].length ?? 0);
+  const minIndent = indents.length ? Math.min(...indents) : 0;
+  const dedented = lines.map((l) => l.slice(minIndent));
+  const sel = view.state.selection.main;
+  const line = view.state.doc.lineAt(sel.from);
+  const curIndent = line.text.slice(0, line.text.length - line.text.trimStart().length);
+  const reindented = dedented.map((l, i) => (i === 0 ? l : curIndent + l)).join("\n");
+  view.dispatch(view.state.replaceSelection(reindented));
+  return true;
 }
 
 export function PythonEditor({
@@ -112,6 +126,7 @@ export function PythonEditor({
         python(),
         pythonAutocomplete(),
         highlightSelectionMatches(),
+        search({ top: true }),
         lintGutter(),
         lintComp.of(linter(() => toCmDiagnostics(), { delay: 400 })),
         keymap.of([...closeBracketsKeymap, ...defaultKeymap, ...historyKeymap, ...searchKeymap, indentWithTab]),
@@ -121,6 +136,15 @@ export function PythonEditor({
         tabComp.of([EditorState.tabSize.of(s.tabSize), indentUnit.of(" ".repeat(s.tabSize))]),
         blockComp.of(blockLines(s.showBlockLines, s.tabSize)),
         updateListener,
+        EditorView.domEventHandlers({
+          paste: (event, v) => {
+            const text = event.clipboardData?.getData("text/plain");
+            if (!text) return false;
+            const handled = smartPaste(v, text);
+            if (handled) event.preventDefault();
+            return handled;
+          },
+        }),
         EditorView.theme({
           "&": { height: "100%" },
           ".cm-scroller": { overflow: "auto" },
@@ -174,6 +198,50 @@ export function PythonEditor({
     window.addEventListener("keydown", onKey, { capture: true });
     return () => window.removeEventListener("keydown", onKey, { capture: true });
   }, [settings.volumeCursor, viewRef]);
+
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host) return;
+    let startDist = 0;
+    let startSize = 0;
+    let raf = 0;
+
+    const dist = (t: TouchList) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+
+    const onStart = (e: TouchEvent) => {
+      if (e.touches.length !== 2) return;
+      startDist = dist(e.touches);
+      startSize = useIdeStore.getState().settings.fontSize;
+    };
+    const onMove = (e: TouchEvent) => {
+      if (e.touches.length !== 2 || !startDist) return;
+      e.preventDefault();
+      if (raf) return;
+      raf = requestAnimationFrame(() => {
+        raf = 0;
+        const scale = dist(e.touches) / startDist;
+        const next = Math.min(28, Math.max(10, Math.round(startSize * scale)));
+        if (next !== useIdeStore.getState().settings.fontSize) {
+          useIdeStore.getState().patchSettings({ fontSize: next });
+        }
+      });
+    };
+    const onEnd = (e: TouchEvent) => {
+      if (e.touches.length < 2) startDist = 0;
+    };
+
+    host.addEventListener("touchstart", onStart, { passive: true });
+    host.addEventListener("touchmove", onMove, { passive: false });
+    host.addEventListener("touchend", onEnd, { passive: true });
+    host.addEventListener("touchcancel", onEnd, { passive: true });
+    return () => {
+      host.removeEventListener("touchstart", onStart);
+      host.removeEventListener("touchmove", onMove);
+      host.removeEventListener("touchend", onEnd);
+      host.removeEventListener("touchcancel", onEnd);
+      if (raf) cancelAnimationFrame(raf);
+    };
+  }, []);
 
   return (
     <div

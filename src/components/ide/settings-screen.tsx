@@ -39,7 +39,7 @@ export function SettingsScreen() {
   const android = isAndroid();
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-bg text-fg">
+    <div className="flex h-dvh min-h-0 flex-col bg-bg text-fg">
       <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border px-2">
         <Button type="button" variant="ghost" size="icon" aria-label="Back" onClick={() => setScreen("editor")}>
           <ArrowLeft className="size-5" />

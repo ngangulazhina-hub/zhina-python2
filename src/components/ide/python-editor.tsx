@@ -18,7 +18,7 @@ import {
   indentUnit,
 } from "@codemirror/language";
 import { searchKeymap, highlightSelectionMatches, search } from "@codemirror/search";
-import { closeBrackets, closeBracketsKeymap, closeBracketsConfig } from "@codemirror/autocomplete";
+import { closeBrackets, closeBracketsKeymap } from "@codemirror/autocomplete";
 import { lintGutter, linter, type Diagnostic as CmDiagnostic } from "@codemirror/lint";
 import { pythonAutocomplete } from "@/lib/python/completions";
 import { blockLines } from "@/lib/editor/block-lines";

@@ -51,7 +51,11 @@ export function editorTheme(settings: IdeSettings) {
       "&.cm-focused .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection": {
         backgroundColor: settings.editorSelection,
       },
-      ".cm-cursor, .cm-dropCursor": { borderLeftColor: settings.editorCursor },
+      ".cm-cursor, .cm-dropCursor": {
+        borderLeftColor: settings.editorCursor,
+        borderLeftWidth: "2.5px",
+      },
+      ".cm-cursorlayer": { pointerEvents: "none" },
       ".cm-matchingBracket": {
         outline: `1px solid ${settings.editorKeyword}`,
         backgroundColor: "transparent",

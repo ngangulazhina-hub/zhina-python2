@@ -1,6 +1,8 @@
 /// <reference lib="webworker" />
 
 const INDEX_URL = "/pyodide/";
+/** CDN matching the bundled Pyodide core release — used when local wheels are missing. */
+const CDN_INDEX = "https://cdn.jsdelivr.net/pyodide/v314.0.7/full/";
 const REMOTE_CACHE_DB = "zhina-python-cache";
 const REMOTE_CACHE_STORE = "responses";
 
@@ -102,6 +104,7 @@ type Pyodide = {
 
 let pyodide: Pyodide | null = null;
 let stdinQueue: string[] = [];
+let stdinEmptyBudget = 0;
 let userGlobals: unknown = null;
 
 function post(data: Record<string, unknown>) {
@@ -131,11 +134,20 @@ async function ensurePyodide() {
   pyodide = await mod.loadPyodide({ indexURL: INDEX_URL });
   pyodide.setStdout({ batched: (s) => post({ type: "stdout", text: s }) });
   pyodide.setStderr({ batched: (s) => post({ type: "stderr", text: s }) });
+  // Empty Program-input no longer raises EOFError on the first missing line —
+  // input() receives "" instead. After a generous empty-line budget, EOF is
+  // signalled so runaway while-input loops can still be stopped.
   pyodide.setStdin({
     stdin: () => {
-      if (!stdinQueue.length) return null;
-      const line = stdinQueue.shift() ?? "";
-      return line.endsWith("\n") ? line : `${line}\n`;
+      if (stdinQueue.length) {
+        const line = stdinQueue.shift() ?? "";
+        return line.endsWith("\n") ? line : `${line}\n`;
+      }
+      if (stdinEmptyBudget > 0) {
+        stdinEmptyBudget -= 1;
+        return "\n";
+      }
+      return null;
     },
   });
   await pyodide.runPythonAsync(`
@@ -245,11 +257,11 @@ def _zhina_capture_figs():
 `;
 
 /** Max time to spend fetching/loading packages for one run. Avoids permanent "Running…". */
-const PACKAGE_LOAD_MS = 45_000;
+const PACKAGE_LOAD_MS = 60_000;
 /** Max time for the Python body itself (after packages). */
 const RUN_MS = 120_000;
 /** Max time for a single package install request. */
-const INSTALL_MS = 90_000;
+const INSTALL_MS = 120_000;
 
 async function withDeadline<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
@@ -291,10 +303,39 @@ async function run(code: string, stdin: string, mode: "run" | "repl") {
   const py = await ensurePyodide();
   stdinQueue = stdin.split(/\r?\n/);
   if (stdinQueue.length && stdinQueue[stdinQueue.length - 1] === "") stdinQueue.pop();
+  // Allow several empty input() calls before EOF (covers most student programs).
+  stdinEmptyBudget = Math.max(8, stdinQueue.length + 8);
   post({ type: "status", status: "running" });
   try {
     try {
-      await withDeadline(py.loadPackagesFromImports(code), PACKAGE_LOAD_MS, "Package load");
+      await withDeadline(
+        (async () => {
+          const prevFetch = globalThis.fetch;
+          globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+            const req = new Request(input, init);
+            let url = req.url;
+            // Wheels requested under the local /pyodide/ path are not in the APK —
+            // rewrite to the matching CDN so first online import can succeed and be cached.
+            if (
+              (url.includes("/pyodide/") || url.startsWith(self.location.origin + "/pyodide/")) &&
+              /\.(whl|zip)$/.test(url) &&
+              !url.includes("python_stdlib")
+            ) {
+              const name = url.split("/").pop() ?? "";
+              url = CDN_INDEX + name;
+              return prevFetch(url, init);
+            }
+            return prevFetch(req);
+          };
+          try {
+            await py.loadPackagesFromImports(code);
+          } finally {
+            globalThis.fetch = prevFetch;
+          }
+        })(),
+        PACKAGE_LOAD_MS,
+        "Package load",
+      );
     } catch (err) {
       // Do not abort the run: pure-stdlib code still works; missing imports will raise ModuleNotFoundError below.
       post({ type: "stderr", text: `Package load: ${offlineHint(err)}\n` });
@@ -365,27 +406,69 @@ async function install(name: string) {
     return;
   }
   post({ type: "status", status: "loading", detail: `Installing ${pkg}` });
+  const errors: string[] = [];
   try {
-    // Prefer local/bundled wheels first (works offline when present under /pyodide/).
+    // 1) Local / already-cached wheels under /pyodide/
     try {
       await withDeadline(py.loadPackage(pkg), INSTALL_MS, `loadPackage(${pkg})`);
       post({ type: "installed", name: pkg, ok: true });
       return;
-    } catch (localErr) {
-      // Fall through to micropip / network.
-      void localErr;
+    } catch (e1) {
+      errors.push(`local: ${errorText(e1)}`);
     }
-    await withDeadline(py.loadPackage("micropip"), INSTALL_MS, "loadPackage(micropip)");
-    py.globals.set("_zhina_pkg", pkg);
-    await withDeadline(
-      py.runPythonAsync(`
+    // 2) micropip (PyPI + Pyodide index — needs network the first time)
+    try {
+      await withDeadline(py.loadPackage("micropip"), INSTALL_MS, "loadPackage(micropip)");
+      py.globals.set("_zhina_pkg", pkg);
+      await withDeadline(
+        py.runPythonAsync(`
 import micropip
 await micropip.install(_zhina_pkg)
 `),
-      INSTALL_MS,
-      `micropip.install(${pkg})`,
-    );
-    post({ type: "installed", name: pkg, ok: true });
+        INSTALL_MS,
+        `micropip.install(${pkg})`,
+      );
+      post({ type: "installed", name: pkg, ok: true });
+      return;
+    } catch (e2) {
+      errors.push(`micropip: ${errorText(e2)}`);
+    }
+    // 3) Last resort: loadPackage against the public CDN index by fetching the
+    //    lock-known name (some builds only resolve relative to indexURL).
+    try {
+      await withDeadline(
+        (async () => {
+          const prevFetch = globalThis.fetch;
+          // Prefer CDN for package files while keeping other requests intact.
+          globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+            const req = new Request(input, init);
+            let url = req.url;
+            if (url.includes("/pyodide/") && /\.(whl|zip|js)$/.test(url) && !url.includes("pyodide.asm") && !url.includes("python_stdlib") && !url.includes("pyodide.mjs")) {
+              url = url.replace(/https?:\/\/[^/]+\/pyodide\//, CDN_INDEX).replace(/\/pyodide\//, CDN_INDEX);
+              return prevFetch(url, init);
+            }
+            return prevFetch(req);
+          };
+          try {
+            await py.loadPackage(pkg);
+          } finally {
+            globalThis.fetch = prevFetch;
+          }
+        })(),
+        INSTALL_MS,
+        `cdn-loadPackage(${pkg})`,
+      );
+      post({ type: "installed", name: pkg, ok: true });
+      return;
+    } catch (e3) {
+      errors.push(`cdn: ${errorText(e3)}`);
+    }
+    post({
+      type: "installed",
+      name: pkg,
+      ok: false,
+      message: offlineHint(errors.join(" | ")),
+    });
   } catch (err) {
     post({
       type: "installed",

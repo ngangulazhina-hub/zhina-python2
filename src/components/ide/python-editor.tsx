@@ -9,7 +9,7 @@ import {
   drawSelection,
   dropCursor,
 } from "@codemirror/view";
-import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
+import { defaultKeymap, history, historyKeymap, indentWithTab, insertNewlineAndIndent } from "@codemirror/commands";
 import { python } from "@codemirror/lang-python";
 import {
   foldGutter,
@@ -18,7 +18,7 @@ import {
   indentUnit,
 } from "@codemirror/language";
 import { searchKeymap, highlightSelectionMatches, search } from "@codemirror/search";
-import { closeBrackets, closeBracketsKeymap } from "@codemirror/autocomplete";
+import { closeBrackets, closeBracketsKeymap, closeBracketsConfig } from "@codemirror/autocomplete";
 import { lintGutter, linter, type Diagnostic as CmDiagnostic } from "@codemirror/lint";
 import { pythonAutocomplete } from "@/lib/python/completions";
 import { blockLines } from "@/lib/editor/block-lines";
@@ -66,6 +66,38 @@ function smartPaste(view: EditorView, text: string): boolean {
   const curIndent = line.text.slice(0, line.text.length - line.text.trimStart().length);
   const reindented = dedented.map((l, i) => (i === 0 ? l : curIndent + l)).join("\n");
   view.dispatch(view.state.replaceSelection(reindented));
+  return true;
+}
+
+
+/** Python-aware Enter: keep body indent; indent extra after a line ending with ":". */
+function pythonNewlineAndIndent(view: EditorView): boolean {
+  const { state } = view;
+  const { from, to } = state.selection.main;
+  if (from !== to) return insertNewlineAndIndent(view);
+
+  const line = state.doc.lineAt(from);
+  const lineText = line.text;
+  const beforeCursor = lineText.slice(0, from - line.from);
+  const trimmed = beforeCursor.trimEnd();
+  const leading = beforeCursor.match(/^[ \t]*/)?.[0] ?? "";
+  const unit = " ".repeat(state.facet(EditorState.tabSize) || 4);
+
+  // Dedent after block-closing keywords alone on the line (pass/return/break/...)
+  const onlyKeyword = /^(return|break|continue|pass|raise)\b/.test(trimmed.trim());
+  let indent = leading;
+  if (trimmed.endsWith(":")) {
+    indent = leading + unit;
+  } else if (onlyKeyword && leading.startsWith(unit)) {
+    indent = leading.slice(unit.length);
+  }
+
+  const insert = "\n" + indent;
+  view.dispatch({
+    changes: { from, to, insert },
+    selection: { anchor: from + insert.length },
+    userEvent: "input",
+  });
   return true;
 }
 
@@ -123,13 +155,25 @@ export function PythonEditor({
         indentOnInput(),
         bracketMatching(),
         closeBrackets(),
+        closeBracketsConfig.of({
+          brackets: ["(", "[", "{", "'", '"', "`"],
+          before: ")]}:;>",
+        }),
         python(),
         pythonAutocomplete(),
         highlightSelectionMatches(),
         search({ top: true }),
         lintGutter(),
         lintComp.of(linter(() => toCmDiagnostics(), { delay: 400 })),
-        keymap.of([...closeBracketsKeymap, ...defaultKeymap, ...historyKeymap, ...searchKeymap, indentWithTab]),
+        // Enter must run before defaultKeymap so Python body indent is preserved on mobile soft keyboards.
+        keymap.of([
+          { key: "Enter", run: pythonNewlineAndIndent },
+          ...closeBracketsKeymap,
+          ...defaultKeymap,
+          ...historyKeymap,
+          ...searchKeymap,
+          indentWithTab,
+        ]),
         runKey,
         themeComp.of(editorTheme(s)),
         wrapComp.of(s.wordWrap ? EditorView.lineWrapping : []),

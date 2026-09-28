@@ -5,27 +5,30 @@ This project is prepared for an Android APK using Capacitor and GitHub Actions.
 ## Offline behavior
 - **Pyodide core** (interpreter + standard library) is bundled into the APK under `public/pyodide/`.
 - Pure standard-library scripts run fully offline with no network.
-- **Scientific packages** (numpy, matplotlib, pandas, …) are *not* pre-bundled (APK size).
-  They download on first import or when you tap **Get** in Libraries, then are cached in IndexedDB for later offline use.
-- The first download of any extra package still requires internet.
-- Package load and run operations have timeouts so the UI never stays stuck on "Running…".
+- **Scientific packages** (numpy, matplotlib, pandas, …) download from the Pyodide CDN on first use when online, then are cached in IndexedDB for later offline runs.
+- Package load / install / run have timeouts so the UI never stays stuck on "Running…".
+
+## input()
+Put answers in the **Program input** box at the bottom of the terminal (one line per `input()` call), then press Run. If the box is empty, `input()` receives an empty string instead of raising EOFError.
+
+## Editor
+- Enter keeps the current block indent (and indents after lines ending with `:`).
+- `(` `[` `{` `"` `'` auto-close.
+- Caret is thickened for mobile visibility; pinch-to-zoom still adjusts font size.
 
 ## GitHub build (Codespace or local → Actions)
-1. Create a GitHub repository and push this project to `main`.
-2. Open **Actions → Build Zhina Python APK → Run workflow** (or push to `main`).
-3. When the workflow finishes, download the `zhina-python-debug-apk` artifact.
+1. Push this project to `main` on GitHub.
+2. Open **Actions → Build Zhina Python APK → Run workflow** (or wait for the push trigger).
+3. Download the `zhina-python-debug-apk` artifact when the job finishes.
 
-The workflow installs Capacitor, downloads the Pyodide 314.0.7 **core** release, builds the web app, generates Android resources from `resources/icon.png`, and produces a debug APK.
+The workflow installs Capacitor, downloads Pyodide **314.0.7** core, builds the web app, patches Android permissions (INTERNET, NETWORK_STATE, VIBRATE, WAKE_LOCK), and produces a debug APK.
 
 ## Local / Codespace prep
 ```bash
 npm install
-npm run android:prepare   # fetch pyodide core + mobile build + copy to dist
-# Optional local Android tooling:
-# npx cap add android && npx cap sync android
+npm run android:prepare
 ```
 
 ## Important
-- The APK is **not** compiled inside this archive; compilation runs on GitHub's runner.
-- After installing the APK: standard library works offline; scientific packages need one online fetch first.
-- Cursor up/down control (volume-style buttons on the right of the editor) respects safe-area insets on Android.
+- Compilation of the APK happens on GitHub's runner, not in this archive.
+- First fetch of scientific packages needs internet; after that they work offline from cache.

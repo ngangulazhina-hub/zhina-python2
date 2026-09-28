@@ -27,7 +27,7 @@ export const DEFAULT_SETTINGS: IdeSettings = {
   ...ink,
   preset: "ink",
   fontFamily: "IBM Plex Mono",
-  fontSize: 14,
+  fontSize: 16,
   fontWeight: "400",
   fontStyle: "normal",
   tabSize: 4,

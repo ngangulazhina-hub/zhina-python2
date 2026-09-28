@@ -155,10 +155,6 @@ export function PythonEditor({
         indentOnInput(),
         bracketMatching(),
         closeBrackets(),
-        closeBracketsConfig.of({
-          brackets: ["(", "[", "{", "'", '"', "`"],
-          before: ")]}:;>",
-        }),
         python(),
         pythonAutocomplete(),
         highlightSelectionMatches(),

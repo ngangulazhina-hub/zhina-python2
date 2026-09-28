@@ -29,7 +29,8 @@ export function VolumeRocker({ viewRef }: { viewRef: React.MutableRefObject<Edit
 
   return (
     <div
-      className="pointer-events-auto absolute top-1/3 right-0 z-20 flex w-9 flex-col overflow-hidden rounded-l-xl bg-elevated/95 shadow-[var(--shadow-border)]"
+      className="pointer-events-auto absolute top-1/3 z-30 flex w-10 flex-col overflow-hidden rounded-l-xl border border-border bg-elevated shadow-[var(--shadow-border)]"
+      style={{ right: "max(0px, env(safe-area-inset-right, 0px))" }}
       aria-label="Volume buttons move the cursor"
     >
       <button

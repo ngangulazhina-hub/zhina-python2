@@ -66,7 +66,7 @@ export const STDLIB_MODULES: LibraryInfo[] = [
   pypiUrl: pypi(name.split(".")[0] ?? name),
 }));
 
-/** Packages Pyodide can load with loadPackage / loadPackagesFromImports. */
+/** Packages available via Pyodide when online (or if wheels were pre-bundled under /pyodide/). */
 export const BUNDLED_PACKAGES: LibraryInfo[] = [
   {
     name: "numpy",

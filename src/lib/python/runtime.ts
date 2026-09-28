@@ -62,11 +62,11 @@ class PythonRuntime {
         this.emit({
           type: "fatal",
           text:
-            "The interpreter did not finish starting within 20 seconds. This usually means one of the " +
+            "The interpreter did not finish starting within 45 seconds. This usually means one of the " +
             "bundled Pyodide files could not be read, or the app's local storage is unavailable.",
         });
       }
-    }, 20000);
+    }, 45000);
   }
 
   ensure() {

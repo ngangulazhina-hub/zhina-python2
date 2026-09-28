@@ -38,8 +38,9 @@ export function LibrariesScreen() {
       </header>
       <div className="min-h-0 flex-1 overflow-auto px-4 py-5 pb-28">
         <p className="text-sm leading-relaxed text-muted">
-          The Python standard library is already here. Scientific packages ship with the interpreter
-          and load on first import. Everything else is installed from{" "}
+          The Python standard library is always available offline. Scientific packages (numpy,
+          matplotlib, …) download on first use when you have a network connection and are then
+          cached for offline runs. Pure-Python packages install from{" "}
           <a className="text-fg underline decoration-border underline-offset-2" href={PYPI_HOME} target="_blank" rel="noreferrer">
             PyPI
           </a>
@@ -62,14 +63,14 @@ export function LibrariesScreen() {
         </div>
 
         <h2 className="mt-8 mb-3 text-xs font-medium tracking-wide text-muted uppercase">
-          Included scientific packages
+          Scientific packages (download once, then offline)
         </h2>
         <div className="flex flex-col gap-2">
           {bundled.map((p) => (
             <LibRow
               key={p.name}
               lib={p}
-              action="Load"
+              action="Get"
               disabled={status === "running" || status === "loading"}
               onAction={() => window.dispatchEvent(new CustomEvent("zhina-install-package", { detail: p.name }))}
             />

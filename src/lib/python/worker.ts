@@ -244,21 +244,69 @@ def _zhina_capture_figs():
     return out
 `;
 
+/** Max time to spend fetching/loading packages for one run. Avoids permanent "Running…". */
+const PACKAGE_LOAD_MS = 45_000;
+/** Max time for the Python body itself (after packages). */
+const RUN_MS = 120_000;
+/** Max time for a single package install request. */
+const INSTALL_MS = 90_000;
+
+async function withDeadline<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const t = setTimeout(
+      () => reject(new Error(`${label} timed out after ${Math.round(ms / 1000)}s`)),
+      ms,
+    );
+    promise.then(
+      (v) => {
+        clearTimeout(t);
+        resolve(v);
+      },
+      (e) => {
+        clearTimeout(t);
+        reject(e);
+      },
+    );
+  });
+}
+
+function offlineHint(err: unknown): string {
+  const msg = errorText(err);
+  const looksNetwork =
+    /fetch|network|failed to load|CDN|jsdelivr|timed out|Load failed|Failed to fetch|ERR_INTERNET|offline/i.test(
+      msg,
+    );
+  if (looksNetwork) {
+    return (
+      `${msg}\n\n` +
+      "This package is not bundled in the offline APK. " +
+      "Connect to the internet once to download it (it will be cached), " +
+      "or use only the Python standard library offline."
+    );
+  }
+  return msg;
+}
+
 async function run(code: string, stdin: string, mode: "run" | "repl") {
   const py = await ensurePyodide();
   stdinQueue = stdin.split(/\r?\n/);
   if (stdinQueue.length && stdinQueue[stdinQueue.length - 1] === "") stdinQueue.pop();
   post({ type: "status", status: "running" });
   try {
-    await py.loadPackagesFromImports(code);
-  } catch (err) {
-    post({ type: "stderr", text: `Package load: ${String(err)}\n` });
-  }
-  try {
+    try {
+      await withDeadline(py.loadPackagesFromImports(code), PACKAGE_LOAD_MS, "Package load");
+    } catch (err) {
+      // Do not abort the run: pure-stdlib code still works; missing imports will raise ModuleNotFoundError below.
+      post({ type: "stderr", text: `Package load: ${offlineHint(err)}\n` });
+    }
     if (mode === "run" || !userGlobals) {
       userGlobals = py.runPython("{'__name__': '__main__'}");
     }
-    const result = await py.runPythonAsync(code, { globals: userGlobals as object });
+    const result = await withDeadline(
+      py.runPythonAsync(code, { globals: userGlobals as object }),
+      RUN_MS,
+      "Python run",
+    );
     if (mode === "repl" && result !== undefined && result !== null) {
       const text = String(result);
       if (text && text !== "None") post({ type: "stdout", text: `${text}\n` });
@@ -266,7 +314,8 @@ async function run(code: string, stdin: string, mode: "run" | "repl") {
     await sendFigures(py);
     post({ type: "done", ok: true });
   } catch (err) {
-    post({ type: "python-error", text: errorText(err) });
+    const text = offlineHint(err);
+    post({ type: "python-error", text });
     post({ type: "done", ok: false });
   } finally {
     post({ type: "status", status: "ready" });
@@ -310,27 +359,40 @@ async function analyze(code: string) {
 
 async function install(name: string) {
   const py = await ensurePyodide();
-  post({ type: "status", status: "loading", detail: `Installing ${name}` });
+  const pkg = name.trim();
+  if (!pkg) {
+    post({ type: "installed", name, ok: false, message: "Empty package name" });
+    return;
+  }
+  post({ type: "status", status: "loading", detail: `Installing ${pkg}` });
   try {
-    await py.loadPackage("micropip");
-    py.globals.set("_zhina_pkg", name);
-    await py.runPythonAsync(`
+    // Prefer local/bundled wheels first (works offline when present under /pyodide/).
+    try {
+      await withDeadline(py.loadPackage(pkg), INSTALL_MS, `loadPackage(${pkg})`);
+      post({ type: "installed", name: pkg, ok: true });
+      return;
+    } catch (localErr) {
+      // Fall through to micropip / network.
+      void localErr;
+    }
+    await withDeadline(py.loadPackage("micropip"), INSTALL_MS, "loadPackage(micropip)");
+    py.globals.set("_zhina_pkg", pkg);
+    await withDeadline(
+      py.runPythonAsync(`
 import micropip
 await micropip.install(_zhina_pkg)
-`);
-    post({ type: "installed", name, ok: true });
+`),
+      INSTALL_MS,
+      `micropip.install(${pkg})`,
+    );
+    post({ type: "installed", name: pkg, ok: true });
   } catch (err) {
-    try {
-      await py.loadPackage(name);
-      post({ type: "installed", name, ok: true });
-    } catch (err2) {
-      post({
-        type: "installed",
-        name,
-        ok: false,
-        message: errorText(err2 ?? err),
-      });
-    }
+    post({
+      type: "installed",
+      name: pkg,
+      ok: false,
+      message: offlineHint(err),
+    });
   } finally {
     post({ type: "status", status: "ready" });
   }

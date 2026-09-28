@@ -125,7 +125,7 @@ export function IdeApp() {
       vibrate(15);
       clearTerminal();
       setLastError(null);
-      appendLine({ kind: "system", text: "Running…" });
+      // Status chip / FAB show "running"; avoid a sticky "Running…" line that never clears.
       setStatus("running");
       if (terminalLayout === "screen") setScreen("terminal");
       void requestWakeLock();

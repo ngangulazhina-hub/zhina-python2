@@ -121,7 +121,7 @@ export function PythonTerminal({ className }: { className?: string }) {
           value={stdin}
           onChange={(e) => setStdin(e.target.value)}
           rows={2}
-          placeholder="Type answers for input() here — one line per call"
+          placeholder="Answers for input() — one line each, in order (menus: put every choice on its own line)"
           className="mb-2 w-full resize-none rounded-lg border-0 bg-black/20 px-2 py-1.5 text-sm outline-none"
           style={{ color: settings.terminalFg }}
         />

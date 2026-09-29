@@ -104,7 +104,6 @@ type Pyodide = {
 
 let pyodide: Pyodide | null = null;
 let stdinQueue: string[] = [];
-let stdinEmptyBudget = 0;
 let userGlobals: unknown = null;
 
 function post(data: Record<string, unknown>) {
@@ -134,20 +133,16 @@ async function ensurePyodide() {
   pyodide = await mod.loadPyodide({ indexURL: INDEX_URL });
   pyodide.setStdout({ batched: (s) => post({ type: "stdout", text: s }) });
   pyodide.setStderr({ batched: (s) => post({ type: "stderr", text: s }) });
-  // Empty Program-input no longer raises EOFError on the first missing line —
-  // input() receives "" instead. After a generous empty-line budget, EOF is
-  // signalled so runaway while-input loops can still be stopped.
+  // Never raise EOFError during a run: empty Program-input yields "" from input().
+  // Menu loops and while-input programs keep going until the user presses Stop.
   pyodide.setStdin({
     stdin: () => {
       if (stdinQueue.length) {
         const line = stdinQueue.shift() ?? "";
         return line.endsWith("\n") ? line : `${line}\n`;
       }
-      if (stdinEmptyBudget > 0) {
-        stdinEmptyBudget -= 1;
-        return "\n";
-      }
-      return null;
+      // Always provide an empty line — no EOF. Stop the app to end infinite loops.
+      return "\n";
     },
   });
   await pyodide.runPythonAsync(`
@@ -303,8 +298,6 @@ async function run(code: string, stdin: string, mode: "run" | "repl") {
   const py = await ensurePyodide();
   stdinQueue = stdin.split(/\r?\n/);
   if (stdinQueue.length && stdinQueue[stdinQueue.length - 1] === "") stdinQueue.pop();
-  // Allow several empty input() calls before EOF (covers most student programs).
-  stdinEmptyBudget = Math.max(8, stdinQueue.length + 8);
   post({ type: "status", status: "running" });
   try {
     try {

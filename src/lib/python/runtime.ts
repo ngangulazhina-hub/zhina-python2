@@ -62,11 +62,12 @@ class PythonRuntime {
         this.emit({
           type: "fatal",
           text:
-            "The interpreter did not finish starting within 45 seconds. This usually means one of the " +
-            "bundled Pyodide files could not be read, or the app's local storage is unavailable.",
+            "The interpreter did not finish starting within 90 seconds. " +
+            "Try force-closing the app and reopening it. If it keeps happening, free some storage " +
+            "or reinstall the APK (Pyodide core may not have been packaged correctly).",
         });
       }
-    }, 45000);
+    }, 90000);
   }
 
   ensure() {

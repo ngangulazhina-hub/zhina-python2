@@ -96,7 +96,7 @@ export function PythonTerminal({ className }: { className?: string }) {
                         seg.color ??
                         (line.kind === "stderr"
                           ? settings.terminalErr
-                          : line.kind === "in" || line.kind === "system"
+                          : line.kind === "in" || line.kind === "system" || line.kind === "prompt"
                             ? settings.terminalPrompt
                             : settings.terminalFg),
                       fontWeight: seg.bold ? 700 : undefined,
@@ -121,7 +121,7 @@ export function PythonTerminal({ className }: { className?: string }) {
           value={stdin}
           onChange={(e) => setStdin(e.target.value)}
           rows={2}
-          placeholder="Answers for input() — one line each, in order (menus: put every choice on its own line)"
+          placeholder="Program input: one answer per input() call, in order"
           className="mb-2 w-full resize-none rounded-lg border-0 bg-black/20 px-2 py-1.5 text-sm outline-none"
           style={{ color: settings.terminalFg }}
         />

@@ -60,6 +60,12 @@ async function cachedFetch(input: RequestInfo | URL, init?: RequestInit): Promis
     // or IndexedDB is hanging.
   }
 
+  // Never wait on a network timeout when the phone is offline. Local APK
+  // assets and previously cached responses were already checked above.
+  if (!navigator.onLine && /^https?:/.test(req.url)) {
+    throw new Error(`Offline: ${req.url}`);
+  }
+
   const response = await nativeFetch(req);
   if (response.ok && /^https?:/.test(req.url)) {
     // Cache-write happens after we already have the response we need to return.
@@ -93,6 +99,7 @@ type Pyodide = {
   runPython: (code: string) => unknown;
   loadPackage: (names: string | string[]) => Promise<void>;
   loadPackagesFromImports: (code: string) => Promise<void>;
+  registerJsModule: (name: string, module: unknown) => void;
   setStdout: (h: { batched?: (s: string) => void }) => void;
   setStderr: (h: { batched?: (s: string) => void }) => void;
   setStdin: (h: { stdin?: () => string | null }) => void;
@@ -133,18 +140,40 @@ async function ensurePyodide() {
   pyodide = await mod.loadPyodide({ indexURL: INDEX_URL });
   pyodide.setStdout({ batched: (s) => post({ type: "stdout", text: s }) });
   pyodide.setStderr({ batched: (s) => post({ type: "stderr", text: s }) });
-  // Never raise EOFError during a run: empty Program-input yields "" from input().
-  // Menu loops and while-input programs keep going until the user presses Stop.
+  // Program input is supplied before Run, one line per input() call.
+  // Returning EOF when the queue is exhausted is important: returning an empty
+  // line forever makes programs such as `while True: input()` spin until the
+  // run timeout, which looks like a frozen terminal.
   pyodide.setStdin({
     stdin: () => {
       if (stdinQueue.length) {
         const line = stdinQueue.shift() ?? "";
         return line.endsWith("\n") ? line : `${line}\n`;
       }
-      // Always provide an empty line — no EOF. Stop the app to end infinite loops.
-      return "\n";
+      return null;
     },
   });
+
+  // Pyodide normally writes input(prompt) to stdout. That is technically
+  // correct Python behaviour, but it makes the prompt look like program output
+  // in our terminal. Send it as a separate UI event instead.
+  pyodide.registerJsModule("zhina_input_ui", {
+    showPrompt: (prompt: string) => post({ type: "prompt", text: prompt }),
+  });
+  await pyodide.runPythonAsync(`
+import builtins, sys
+from zhina_input_ui import showPrompt as _zhina_show_prompt
+
+def _zhina_input(prompt=""):
+    if prompt:
+        _zhina_show_prompt(str(prompt))
+    line = sys.stdin.readline()
+    if line == "":
+        raise EOFError("No more program input was provided")
+    return line.rstrip("\r\n")
+
+builtins.input = _zhina_input
+`);
   await pyodide.runPythonAsync(`
 import sys, os
 os.environ.setdefault("MPLBACKEND", "AGG")
@@ -252,9 +281,9 @@ def _zhina_capture_figs():
 `;
 
 /** Max time to spend fetching/loading packages for one run. Avoids permanent "Running…". */
-const PACKAGE_LOAD_MS = 60_000;
+const PACKAGE_LOAD_MS = 30_000;
 /** Max time for the Python body itself (after packages). */
-const RUN_MS = 120_000;
+const RUN_MS = 90_000;
 /** Max time for a single package install request. */
 const INSTALL_MS = 120_000;
 
@@ -321,6 +350,10 @@ async function run(code: string, stdin: string, mode: "run" | "repl") {
             return prevFetch(req);
           };
           try {
+            // Always ask Pyodide to resolve imports. cachedFetch serves any
+            // package already cached on the phone, while a missing remote
+            // package fails immediately when offline instead of waiting on a
+            // network timeout.
             await py.loadPackagesFromImports(code);
           } finally {
             globalThis.fetch = prevFetch;

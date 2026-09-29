@@ -53,6 +53,9 @@ export function IdeApp() {
         store.setStatus("ready");
       } else if (ev.type === "stdout") {
         store.appendLine({ kind: "stdout", text: ev.text });
+      } else if (ev.type === "prompt") {
+        // Python input() prompts are rendered as prompts, not program output.
+        store.appendLine({ kind: "prompt", text: ev.text });
       } else if (ev.type === "stderr") {
         store.appendLine({ kind: "stderr", text: ev.text });
       } else if (ev.type === "image") {

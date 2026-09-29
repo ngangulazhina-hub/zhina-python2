@@ -10,7 +10,7 @@ export type Diagnostic = {
 
 export type TerminalLine = {
   id: string;
-  kind: "stdout" | "stderr" | "system" | "in" | "image";
+  kind: "stdout" | "stderr" | "system" | "in" | "prompt" | "image";
   text: string;
 };
 

@@ -9,7 +9,7 @@ This project is prepared for an Android APK using Capacitor and GitHub Actions.
 - Package load / install / run have timeouts so the UI never stays stuck on "Running…".
 
 ## input()
-Put answers in the **Program input** box at the bottom of the terminal (one line per `input()` call), then press Run. If the box is empty, `input()` receives an empty string instead of raising EOFError.
+Put answers in the **Program input** box at the bottom of the terminal (one line per `input()` call), then press Run. The prompt from `input("...")` is shown as a terminal prompt, not as normal program output. Provide one answer per `input()` call in the Program input box. If the program asks for more input than you supplied, it stops with a clear EOFError instead of looping forever.
 
 ## Editor
 - Enter keeps the current block indent (and indents after lines ending with `:`).
